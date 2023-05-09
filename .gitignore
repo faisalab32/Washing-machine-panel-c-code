@@ -1,32 +1,556 @@
-# Prerequisites
-*.d
+#include "mbed.h"
+#include <chrono>
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+// buzzer note definitions 
+#define NOTE_B0  31
+#define NOTE_C1  33
+#define NOTE_CS1 35
+#define NOTE_D1  37
+#define NOTE_DS1 39
+#define NOTE_E1  41
+#define NOTE_F1  44
+#define NOTE_FS1 46
+#define NOTE_G1  49
+#define NOTE_GS1 52
+#define NOTE_A1  55
+#define NOTE_AS1 58
+#define NOTE_B1  62
+#define NOTE_C2  65
+#define NOTE_CS2 69
+#define NOTE_D2  73
+#define NOTE_DS2 78
+#define NOTE_E2  82
+#define NOTE_F2  87
+#define NOTE_FS2 93
+#define NOTE_G2  98
+#define NOTE_GS2 104
+#define NOTE_A2  110
+#define NOTE_AS2 117
+#define NOTE_B2  123
+#define NOTE_C3  131
+#define NOTE_CS3 139
+#define NOTE_D3  147
+#define NOTE_DS3 156
+#define NOTE_E3  165
+#define NOTE_F3  175
+#define NOTE_FS3 185
+#define NOTE_G3  196
+#define NOTE_GS3 208
+#define NOTE_A3  220
+#define NOTE_AS3 233
+#define NOTE_B3  247
+#define NOTE_C4  262   
+#define NOTE_CS4 277
+#define NOTE_D4  294
+#define NOTE_DS4 311
+#define NOTE_E4  330
+#define NOTE_F4  349
+#define NOTE_FS4 370
+#define NOTE_G4  392
+#define NOTE_GS4 415
+#define NOTE_A4  440
+#define NOTE_AS4 466
+#define NOTE_B4  494
+#define NOTE_C5  523
+#define NOTE_CS5 554
+#define NOTE_D5  587
+#define NOTE_DS5 622
+#define NOTE_E5  659
+#define NOTE_F5  698
+#define NOTE_FS5 740
+#define NOTE_G5  784
+#define NOTE_GS5 831
+#define NOTE_A5  880
+#define NOTE_AS5 932
+#define NOTE_B5  988
+#define NOTE_C6  1047
+#define NOTE_CS6 1109
+#define NOTE_D6  1175
+#define NOTE_DS6 1245
+#define NOTE_E6  1319
+#define NOTE_F6  1397
+#define NOTE_FS6 1480
+#define NOTE_G6  1568
+#define NOTE_GS6 1661
+#define NOTE_A6  1760
+#define NOTE_AS6 1865
+#define NOTE_B6  1976
+#define NOTE_C7  2093
+#define NOTE_CS7 2217
+#define NOTE_D7  2349
+#define NOTE_DS7 2489
+#define NOTE_E7  2637
+#define NOTE_F7  2794
+#define NOTE_FS7 2960
+#define NOTE_G7  3136
+#define NOTE_GS7 3322
+#define NOTE_A7  3520
+#define NOTE_AS7 3729
+#define NOTE_B7  3951
+#define NOTE_C8  4186
+#define NOTE_CS8 4435
+#define NOTE_D8  4699
+#define NOTE_DS8 4978
+AnalogIn FSR(PA_1); //Force sensor pin
+void playnote (PwmOut&buzzer,float frequency, int duration);
+//LDR pin
+AnalogIn LDR(PC_2);
+// Song melodies for each cycle
+//cyle1:
+int cycle1_melody[] = {NOTE_C4, NOTE_E4, NOTE_G4, NOTE_C5};
+int cycle1_note_durations[] = {4, 4, 4, 4};
+int cycle1_song_length = sizeof(cycle1_melody) / sizeof(cycle1_melody[0]);
+//cycle2:
+int cycle2_melody[] = {NOTE_E4, NOTE_G4, NOTE_B4, NOTE_E5};
+int cycle2_note_durations[] = {4, 4, 4, 4};
+int cycle2_song_length = sizeof(cycle2_melody) / sizeof(cycle2_melody[0]);
+//cycle 3:
+int cycle3_melody[] = {NOTE_G4, NOTE_B4, NOTE_D5, NOTE_G5};
+int cycle3_note_durations[] = {4, 4, 4, 4};
+int cycle3_song_length = sizeof(cycle3_melody) / sizeof(cycle3_melody[0]);
+//thi is for the 'beeping' logic
+int previous_cycle = -1;
 
-# Precompiled Headers
-*.gch
-*.pch
+// cycle duration initilization 
+int cycle_duration = 0;
+// Timer for the washing cycle
+Timer cycle_timer;
+//initalizing the potentioometer val 1 ( for the leds)
+int cntl_val1 = 0;
+//setting serial connection 
+BufferedSerial pc(USBTX, USBRX, 115200);
+//Led bus out
+BusOut leds_bus( PC_0, PC_1, PB_0, PA_4 );
+//function for potentiometers 
+AnalogIn pot1(PA_5);
+AnalogIn pot2(PA_6);
+// functions for buttons 
+DigitalIn button1(PC_11);
+DigitalIn button2(PC_10);
+//functions for 7-segment display
+BusOut SegDis(PA_11, PA_12, PB_2, PB_1, PB_15, PB_11, PB_12, PB_14);
+// 7-segment display numbers and letters hex values
+//               0     1     2     3     4     5     6     7     8     9     A     b     C     d     E     F     G     H     i     J     L     n     O     P     r     S     t     U     Y
+int hexDis[] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71, 0x3D, 0x76, 0x30, 0x1E, 0x38, 0x54, 0x3F, 0x73, 0x50, 0x6D, 0x78, 0x3E, 0x6E};
+//int dp_status = 0;
+//7 - seg display port definitions (only used in start up animation)
+DigitalOut seg1(PA_12);
+DigitalOut seg2(PA_11);
+DigitalOut seg3(PB_12);
+DigitalOut seg4(PB_11);
+DigitalOut seg5(PB_2);
+DigitalOut seg6(PB_1);
+DigitalOut seg7(PB_15);
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+// buzzer 
+PwmOut buzzer(PA_15);
+// multi led
+PwmOut redled(PB_3);
+PwmOut blueled(PB_4);
+PwmOut greenled(PB_5);
+//machine status  
+enum machinestatus {
+    OFF,
+    ON,
+    WASHING
+};
+int current_cycle = 1;
 
-# Fortran module files
-*.mod
-*.smod
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+//logic for machine 
+machinestatus statusNow = OFF;
+machinestatus statusBefore = OFF;
 
-# Executables
-*.exe
-*.out
-*.app
+//button release variables to make sure of the status of the button
+bool button1_released = true;
+bool button2_released = true;
+
+bool force_sensor_released = true;
+const int debounce_delay = 20; // Debounce delay in milliseconds
+Timer debounce_timer;
+
+void powerondis();
+void updateState();
+void redrgbled();
+void greenrgbled();
+void bluergbled();
+void ledusingpmw();
+void play_song(int melody[], int note_durations[], int song_length);
+void end_cycle_animation();
+void init_segdis();
+
+int main() {
+    printf("To turn the machine On touch the force sensor gently, \n");
+    printf("to turn Off the machine press the button on the left\n\n");
+    
+    printf("To choose the different cycles turn the left potentiometer \n");
+    printf("To cycle through the different modes\n\n");
+    
+    printf("Cycles are:\n\n");
+    printf("  Cycle 1: Light clothes\n");
+    printf("  Cycle 2: Heavy clothes\n");
+    printf("  Cycle 3: Drying cycle\n\n");
+    
+    printf("To choose between the different temperatures turn the second potentiometer \n");
+    printf(" the light on the right indicates highest temperature (red LED)\n\n");
+    
+    printf("To start the cycle press button two (the bottom to the far right)\n");
+    printf("A blue light will indicate the start of the cycle\n\n");
+    
+    printf("A blinking animation will appear to indicate the ending of the cycle\n\n");
+    
+    printf("To stop the cycle in the middle of a mode, press button 2 again, \n");
+    printf("and you will be prompted with the cycle selection menu again.\n");
+    
+    printf("Note: \n");
+    printf("The machine will not allow you to select the drying cycle if it detects sunlight outside,\n");
+    printf(" This is to save energy! \n");
+
+    
+    while (true) {
+
+        float FSR_Val = FSR.read();
+        //button and FSR logic
+        if (FSR_Val > 0.1) {
+        force_sensor_released = false;
+        debounce_timer.reset();
+        if (statusNow == OFF) {
+            statusNow = ON;
+            printf("Power is ON \n");
+        }
+    } else {
+        force_sensor_released = true;
+        debounce_timer.reset();
+    }
+
+
+
+        if (button1.read() == 1 && button1_released) { // button1 is pressed, so machine is off
+            button1_released = false;
+            if (statusNow == ON || statusNow == WASHING) {
+                statusNow = OFF;
+                printf("Power is OFF \n");
+            }
+        } else if (button1.read() == 0) {
+            button1_released = true;
+        }
+
+        if (button2.read() == 1 && button2_released) { // button2 is pressed, so Start cycle
+    button2_released = false;
+    float ldr_value = LDR.read() * 100; // Convert the LDR value to a percentage
+    if (statusNow == ON && !(current_cycle == 3 && ldr_value > 80)) {
+        statusNow = WASHING;
+        printf("Cycle started \n");
+    } else if (statusNow == WASHING) {
+        statusNow = ON;
+        cycle_timer.stop(); // Stop the washing cycle timer
+        cycle_timer.reset(); // Reset the washing cycle timer
+    } else if (statusNow == ON && current_cycle == 3 && ldr_value > 80) {
+        printf("It seems sunny today, SAVE THE PLANET and save energy by drying your clothes outside ;) .\n");
+        redrgbled();
+        ThisThread::sleep_for(583ms);
+        greenrgbled();
+        ThisThread::sleep_for(20ms);
+
+    }
+} else if (button2.read() == 0) {
+    button2_released = true;
+}
+
+
+        updateState();
+    }
+}
+
+// playing a 'Beep' for change in cycle 
+void playnote (PwmOut &buzzer,float frequency, int duration_ms){
+
+    buzzer.period(1.0/frequency);
+    buzzer.write(0.5f);
+    ThisThread::sleep_for(duration_ms);
+    buzzer.write(0.0f);
+}
+
+//functions to assin each RGB color to the color wanted:
+void redrgbled(){
+
+    redled.write(1);
+    greenled.write(0);
+    blueled.write(0);
+}
+
+void greenrgbled(){
+
+    redled.write(0);
+    greenled.write(1);
+    blueled.write(0);
+}
+
+void bluergbled(){
+
+    redled.write(0);
+    greenled.write(0);
+    blueled.write(1);
+}
+
+void powerondis(){
+    seg1 = !seg1;
+    ThisThread::sleep_for(50ms);
+    seg2 = !seg2;
+    ThisThread::sleep_for(50ms);
+    seg4 = !seg4;
+    ThisThread::sleep_for(50ms);
+    seg7 = !seg7;
+    ThisThread::sleep_for(50ms);
+    seg6 = !seg6;
+    ThisThread::sleep_for(50ms);
+    seg5 = !seg5;
+    ThisThread::sleep_for(50ms);
+
+    //LEDs Animation
+    leds_bus.write(0x8);
+    ThisThread::sleep_for(80ms);
+    leds_bus.write(0xC);
+    ThisThread::sleep_for(80ms);
+    leds_bus.write(0xE);
+    ThisThread::sleep_for(80ms);
+    leds_bus.write(0xF);
+    ThisThread::sleep_for(80ms);
+
+    //buzzer sound
+    buzzer.period(1.0/120);
+    buzzer.write(0.5f);
+    ThisThread::sleep_for(200ms);
+    buzzer.write(0.0f);
+
+    buzzer.period(1.0/200);
+    buzzer.write(0.5f);
+    ThisThread::sleep_for(200ms);
+    buzzer.write(0.0f);
+
+    buzzer.period(1.0/500);
+    buzzer.write(0.5f);
+    ThisThread::sleep_for(200ms);
+    buzzer.write(0.0f);
+
+    
+}
+
+void updateState() {
+    switch (statusNow) {
+        case OFF:
+            leds_bus.write(0);
+            SegDis.write(0);
+            redrgbled();
+            statusBefore = OFF;
+            break;
+        case ON:
+            if (statusBefore != ON) {
+                powerondis();
+                greenrgbled();
+                statusBefore = ON;
+            }
+
+            // Potentiometer logic
+    {
+        float cntl_val2 = pot1.read();
+
+        if (cntl_val2 < 0.33){
+            // Display number 1 on the 7-segment display
+            SegDis.write(0x06); 
+            cycle_duration = 30;
+            current_cycle = 1;
+            
+        }
+        else if (cntl_val2 >= 0.33 && cntl_val2 < 0.66){
+            // Display number 2 on the 7-segment display
+            SegDis.write(0x5B); 
+            cycle_duration = 50;
+            current_cycle = 2;
+            
+        }
+        else {
+            // Display number 3 on the 7-segment display
+            SegDis.write(0x4F);
+            cycle_duration = 20;
+            current_cycle = 3;
+            
+        }
+        if (current_cycle != previous_cycle) {//print the cycles on monitor function 
+            switch (current_cycle) {
+                case 1:
+                    printf("Light clothes cycle\n\r");
+                    break;
+                case 2:
+                    printf("Heavy clothes cycle\n\r");
+                    break;
+                case 3:
+                    printf("Drying cycle\n\r");
+                    break;
+            }
+            playnote(buzzer, 250, 100);
+            ThisThread::sleep_for(10ms);
+        }
+
+        // Update previous_cycle for the next iteration
+        previous_cycle = current_cycle;
+    }
+
+            // Control temperature using potentiometer and the 4 LEDs are the output
+            ledusingpmw();
+
+            break;
+  case WASHING:                              //washing state logic
+            if (statusBefore != WASHING) { //and if the added does not exceed a certain value 
+                cycle_timer.start();
+                bluergbled();
+                statusBefore = WASHING;
+                // Play the song for the selected cycle
+                switch (cycle_duration) {
+                    case 30:
+                        play_song(cycle1_melody, cycle1_note_durations, cycle1_song_length);
+                        // First mode on seg display
+                        SegDis.write(0x38);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x30);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x3D);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x76);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x78);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x6E);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x38);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x79);
+                        ThisThread::sleep_for(600ms);
+                        break;
+                    case 50:
+                        play_song(cycle2_melody, cycle2_note_durations, cycle2_song_length);
+                        // second mode on seg display
+                        SegDis.write(0x7C);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x30);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x3D);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x6E);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x38);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x79);
+                        ThisThread::sleep_for(600ms);
+                        break;
+                    case 20:
+                        play_song(cycle3_melody, cycle3_note_durations, cycle3_song_length);
+                        // third mode on seg display
+                        SegDis.write(0x5E);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x50);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x6E);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x6E);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x39);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x38);
+                        ThisThread::sleep_for(600ms);
+                        SegDis.write(0x79);
+                        ThisThread::sleep_for(600ms);
+                        break;
+                } 
+            }
+
+             seg1 = 0; //initilizing all segment dsiplays 
+             seg2 = 0;
+             seg4 = 0;
+             seg7 = 0;
+             seg6 = 0;
+             seg5 = 0;
+             seg3 = 0;
+
+             ThisThread::sleep_for(50ms); // start of loading animation 
+             seg1 = !seg1;
+             ThisThread::sleep_for(50ms);
+             seg2 = !seg2;
+             ThisThread::sleep_for(50ms);
+             seg4 = !seg4;
+             ThisThread::sleep_for(50ms);       
+             seg7 = !seg7;
+             ThisThread::sleep_for(50ms);
+             seg6 = !seg6;
+             ThisThread::sleep_for(50ms);
+             seg5 = !seg5;
+             ThisThread::sleep_for(50ms);
+             seg3 = 0;
+             ThisThread::sleep_for(50ms);
+             
+
+            if (cycle_timer.read() >= cycle_duration) {
+                cycle_timer.stop();
+                cycle_timer.reset();
+                end_cycle_animation(); //the end cycle animation 
+                printf("End of cycle ");
+                statusNow = ON;
+            }
+
+            
+            break;
+    }
+}
+//control temp wanted using potentiometer and the 4 leds are the output
+void ledusingpmw(){
+      cntl_val1 = pot2.read_u16()/13107;       // Reads pot voltage between 0 - 65,535
+            
+        leds_bus.write(~(0b1111>>cntl_val1));
+        
+ 
+        ThisThread::sleep_for(100ms);
+}
+
+void play_song(int melody[], int note_durations[], int song_length) {
+    for (int note = 0; note < song_length; note++) {
+        // Calculate the note duration and play note
+        int note_duration = 1000 / note_durations[note];
+        buzzer.period(1.0 / melody[note]);
+        buzzer.write(0.5f);
+        ThisThread::sleep_for(std::chrono::milliseconds(note_duration));
+
+        // Calculate pause between notes and pause
+        int pause_between_notes = note_duration * 1.30;
+        buzzer.write(0.0f);
+        ThisThread::sleep_for(std::chrono::milliseconds(pause_between_notes));
+    }
+}
+//cycle animation when each cycle ends 
+void end_cycle_animation() {
+    for (int i = 0; i < 4; i++) {
+        bluergbled();
+        leds_bus.write(0x0F);
+        ThisThread::sleep_for(200ms);
+
+        redled.write(0);
+        blueled.write(0);
+        greenled.write(0);
+        leds_bus.write(0x00);
+        ThisThread::sleep_for(200ms);
+
+       playnote(buzzer, 400, 150);
+       ThisThread::sleep_for(100ms);
+    }
+ 
+}
+
